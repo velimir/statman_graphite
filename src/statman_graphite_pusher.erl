@@ -216,7 +216,7 @@ format_path(Path) ->
     sanitize(iolist_to_binary(format_key2(Path))).
 
 format_tags(Tags) ->
-    Pairs = lists:ukeysort(1, [{sanitize_tag(K, <<";!^=~ \n">>), sanitize_tag(V, <<";~ \n">>)}
+    Pairs = lists:ukeysort(1, [{sanitize_tag(K, <<";!^=~ \t\r\n">>), sanitize_tag(V, <<";~ \t\r\n">>)}
                                || {K, V} <- lists:sort(maps:to_list(Tags))]),
     iolist_to_binary([[$;, Name, $=, Value] || {Name, Value} <- Pairs,
                                                Name =/= <<>>, Value =/= <<>>]).
@@ -292,7 +292,8 @@ format_tagged_histogram_key_test() ->
 
 format_tag_value_test() ->
     Key = {name, #{path => <<"a/b c;d~e">>, empty => <<>>, http_status => nil}},
-    ?assertEqual(<<"name;http_status=nil;path=a/b_c_d_e">>, format_key(Key)).
+    ?assertEqual(<<"name;http_status=nil;path=a/b_c_d_e">>, format_key(Key)),
+    ?assertEqual(<<"name;ws=a_b_c">>, format_key({name, #{ws => <<"a\tb\rc">>}})).
 
 format_tag_term_test() ->
     Key = {name, #{ratio => 0.25, pair => {a, 1.5}, '日' => "ü", list => [1, x]}},

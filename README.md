@@ -71,7 +71,7 @@ statman:incr({{api, request}, #{method => get, status => 200}}).
 
 For a histogram, the percentile goes before the tags, for example
 `api.duration.p99;method=get`. The characters that Graphite does not accept
-in a tag (`;`, `~`, a space and a new line, and also `!`, `^` and `=` in a
-name) are changed to `_`. A tag with an empty name or value is left out. If
+in a tag (`;`, `~`, a space, a tab, a carriage return and a new line, and also `!`,
+`^` and `=` in a name) are changed to `_`. A tag with an empty name or value is left out. If
 two tag names are the same after that change, only the first in sort order is
 kept. A tag can hold any term, for example a float or a tuple.
