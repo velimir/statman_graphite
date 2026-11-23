@@ -198,7 +198,9 @@ format_histogram(Metric) ->
 
 %% A key {Path, Tags} with a map of tags is written in the Graphite tag
 %% format: path;name=value;... with the tags sorted by name. A tag with an
-%% empty value is left out, because Graphite does not accept one.
+%% empty name or value is left out, because Graphite does not accept one. If
+%% two names are the same after sanitizing, only the first in sort order is
+%% kept, so a line never holds the same tag twice.
 format_key({Path, Tags}) when is_map(Tags) ->
     <<(format_path(Path))/binary, (format_tags(Tags))/binary>>;
 format_key(Path) ->
@@ -214,13 +216,31 @@ format_path(Path) ->
     sanitize(iolist_to_binary(format_key2(Path))).
 
 format_tags(Tags) ->
-    Pairs = lists:sort([{sanitize_tag(K, <<";!^=~ \n">>), sanitize_tag(V, <<";~ \n">>)}
-                        || {K, V} <- maps:to_list(Tags)]),
-    iolist_to_binary([[$;, Name, $=, Value] || {Name, Value} <- Pairs, Value =/= <<>>]).
+    Pairs = lists:ukeysort(1, [{sanitize_tag(K, <<";!^=~ \n">>), sanitize_tag(V, <<";~ \n">>)}
+                               || {K, V} <- lists:sort(maps:to_list(Tags))]),
+    iolist_to_binary([[$;, Name, $=, Value] || {Name, Value} <- Pairs,
+                                               Name =/= <<>>, Value =/= <<>>]).
 
 sanitize_tag(Term, Forbidden) ->
-    Bin = iolist_to_binary(format_key2(Term)),
+    Bin = tag_to_binary(Term),
     << <<(case binary:match(Forbidden, <<C>>) of nomatch -> C; _ -> $_ end)>> || <<C>> <= Bin >>.
+
+%% A tag can hold any term, and one bad tag must not stop the whole push.
+tag_to_binary(T) when is_atom(T) -> atom_to_binary(T, utf8);
+tag_to_binary(T) when is_integer(T) -> integer_to_binary(T);
+tag_to_binary(T) when is_float(T) -> float_to_binary(T, [short]);
+tag_to_binary(T) when is_binary(T) -> T;
+tag_to_binary(T) when is_tuple(T) ->
+    iolist_to_binary(lists:join($., [tag_to_binary(E) || E <- tuple_to_list(T)]));
+tag_to_binary(T) when is_list(T) ->
+    try unicode:characters_to_binary(T) of
+        Bin when is_binary(Bin) -> Bin;
+        _ -> iolist_to_binary(io_lib:format("~0p", [T]))
+    catch
+        error:badarg -> iolist_to_binary(io_lib:format("~0p", [T]))
+    end;
+tag_to_binary(T) ->
+    iolist_to_binary(io_lib:format("~0p", [T])).
 
 format_key2(Key) when is_integer(Key) ->
     [integer_to_list(Key)];
@@ -273,6 +293,22 @@ format_tagged_histogram_key_test() ->
 format_tag_value_test() ->
     Key = {name, #{path => <<"a/b c;d~e">>, empty => <<>>, http_status => nil}},
     ?assertEqual(<<"name;http_status=nil;path=a/b_c_d_e">>, format_key(Key)).
+
+format_tag_term_test() ->
+    Key = {name, #{ratio => 0.25, pair => {a, 1.5}, '日' => "ü", list => [1, x]}},
+    ?assertEqual(<<"name;list=[1,x];pair=a.1.5;ratio=0.25;"/utf8, "日=ü"/utf8>>,
+                 format_key(Key)).
+
+format_tag_name_test() ->
+    ?assertEqual(<<"name;a_b=1">>, format_key({name, #{'a b' => 1, a_b => 2}})),
+    ?assertEqual(<<"name;b=2">>, format_key({name, #{'' => 1, b => 2}})).
+
+serialize_mixed_metrics_test() ->
+    Odd = [{key, {odd, #{ratio => 0.5, '日' => x}}}, {type, gauge}, {value, 1}],
+    Plain = [{key, {plain, gauge}}, {type, gauge}, {value, 2}],
+    Lines = serialize_metrics(undefined, [Odd, Plain]),
+    ?assertMatch([<<"odd;ratio=0.5;"/utf8, "日=x 1 "/utf8, _/binary>>,
+                  <<"plain.gauge 2 ", _/binary>>], Lines).
 
 serialize_tagged_metrics_test() ->
     Gauge = [{key, {{pod, mem}, #{alloc => binary_alloc}}}, {type, gauge}, {value, 7}],
