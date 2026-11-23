@@ -58,3 +58,18 @@ application:set_env(statman_graphite, filtermapper,
                           end
                     end).
 ```
+
+## Tags
+
+A key of the form `{Path, Tags}`, where `Tags` is a map, is sent in the
+Graphite tag format, with the tags sorted by name:
+
+```erlang
+statman:incr({{api, request}, #{method => get, status => 200}}).
+%% api.request;method=get;status=200 1 1700000000
+```
+
+For a histogram, the percentile goes before the tags, for example
+`api.duration.p99;method=get`. A tag with an empty value is left out. The
+characters that Graphite does not accept in a tag (`;`, `~`, a space and a
+new line, and also `!`, `^` and `=` in a name) are changed to `_`.
